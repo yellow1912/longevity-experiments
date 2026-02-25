@@ -168,3 +168,107 @@ def search_supplements(
             error_msg += f"\nBad request. Check your partner tag and search parameters."
 
         raise ApiException(status=e.status, reason=error_msg)
+
+
+def format_product_data(response: object) -> List[Dict[str, any]]:
+    """
+    Extract and format product data from API response.
+
+    Args:
+        response: SearchItemsResponse object
+
+    Returns:
+        List of formatted product dictionaries
+    """
+    if not response or not response.search_result or not response.search_result.items:
+        return []
+
+    products = []
+
+    for item in response.search_result.items:
+        product = {
+            'asin': item.asin,
+            'title': 'N/A',
+            'brand': 'N/A',
+            'price': 'N/A',
+            'rating': 'N/A',
+            'review_count': 0,
+            'url': item.detail_page_url if item.detail_page_url else 'N/A',
+            'image': 'N/A',
+            'features': []
+        }
+
+        # Extract title
+        if item.item_info and item.item_info.title:
+            product['title'] = item.item_info.title.display_value
+
+        # Extract brand
+        if (item.item_info and item.item_info.by_line_info and
+            item.item_info.by_line_info.brand):
+            product['brand'] = item.item_info.by_line_info.brand.display_value
+
+        # Extract price
+        if (item.offers and item.offers.listings and
+            len(item.offers.listings) > 0):
+            listing = item.offers.listings[0]
+            if listing.price:
+                product['price'] = (
+                    f"${listing.price.amount:.2f} {listing.price.currency}"
+                )
+
+        # Extract rating
+        if (item.customer_reviews and item.customer_reviews.star_rating):
+            product['rating'] = item.customer_reviews.star_rating.display_value
+            if item.customer_reviews.count:
+                product['review_count'] = item.customer_reviews.count
+
+        # Extract image
+        if (item.images and item.images.primary and
+            item.images.primary.large):
+            product['image'] = item.images.primary.large.url
+
+        # Extract features (first 3)
+        if (item.item_info and item.item_info.features and
+            item.item_info.features.display_values):
+            product['features'] = item.item_info.features.display_values[:3]
+
+        products.append(product)
+
+    return products
+
+
+def display_products(products: List[Dict[str, any]]) -> None:
+    """
+    Display formatted product information to console.
+
+    Args:
+        products: List of product dictionaries
+    """
+    if not products:
+        print("\nNo products to display.")
+        return
+
+    print(f"\nFound {len(products)} products:\n")
+    print("=" * 80)
+
+    for idx, product in enumerate(products, 1):
+        print(f"\n{idx}. {product['title']}")
+        print(f"   Brand: {product['brand']}")
+        print(f"   ASIN: {product['asin']}")
+        print(f"   Price: {product['price']}")
+        print(f"   Rating: {product['rating']}", end="")
+        if product['review_count']:
+            print(f" ({product['review_count']:,} reviews)")
+        else:
+            print()
+        print(f"   Link: {product['url']}")
+        print(f"   Image: {product['image']}")
+
+        if product['features']:
+            print("   Key Features:")
+            for feature in product['features']:
+                # Truncate long features
+                feature_text = feature if len(feature) <= 70 else feature[:67] + "..."
+                print(f"     • {feature_text}")
+
+        print("-" * 80)
