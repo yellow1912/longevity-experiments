@@ -272,3 +272,73 @@ def display_products(products: List[Dict[str, any]]) -> None:
                 print(f"     • {feature_text}")
 
         print("-" * 80)
+
+
+def main():
+    """
+    Main function to orchestrate the credential test workflow.
+    """
+    print("=" * 80)
+    print("Amazon Affiliate API Test Script")
+    print("=" * 80)
+
+    try:
+        # Step 1: Load credentials
+        print("\n[1/4] Loading credentials...")
+        credentials = load_credentials()
+        print(f"✓ Loaded partner tag: {credentials['partner_tag']}")
+
+        # Step 2: Initialize API client
+        print("\n[2/4] Initializing Amazon PA-API client...")
+        api_client = initialize_api_client(credentials)
+        print("✓ API client initialized")
+
+        # Step 3: Search for supplements
+        print("\n[3/4] Searching for supplements...")
+        response = search_supplements(
+            api_client=api_client,
+            partner_tag=credentials['partner_tag'],
+            keyword="vitamin D supplement",
+            item_count=10
+        )
+
+        if response:
+            print("✓ Search completed successfully")
+        else:
+            print("✗ Search returned no results")
+            return
+
+        # Step 4: Format and display results
+        print("\n[4/4] Formatting results...")
+        products = format_product_data(response)
+        print(f"✓ Formatted {len(products)} products")
+
+        display_products(products)
+
+        # Verify affiliate tag in URLs
+        print("\n" + "=" * 80)
+        print("Verification:")
+        if products and 'longevityhe09-20' in products[0]['url']:
+            print("✓ Affiliate tag present in URLs")
+        else:
+            print("✗ Warning: Affiliate tag not found in URLs")
+
+        print("\n✓ Test completed successfully!")
+        print("=" * 80)
+
+    except FileNotFoundError as e:
+        print(f"\n✗ Error: {e}")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"\n✗ Credential Error: {e}")
+        sys.exit(1)
+    except ApiException as e:
+        print(f"\n✗ API Error: {e.reason if hasattr(e, 'reason') else e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n✗ Unexpected Error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
