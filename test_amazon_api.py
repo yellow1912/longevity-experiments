@@ -70,3 +70,25 @@ def load_credentials(csv_path: str = "Longevity-credentials.csv") -> Dict[str, s
         raise ValueError(f"Error parsing CSV file: {e}")
     except Exception as e:
         raise ValueError(f"Unexpected error loading credentials: {e}")
+
+
+def initialize_api_client(credentials: Dict[str, str]) -> DefaultApi:
+    """
+    Initialize Amazon PA-API client with credentials.
+
+    Args:
+        credentials: Dictionary with partner_tag, access_key, secret_key
+
+    Returns:
+        Configured DefaultApi client instance
+    """
+    try:
+        api_client = DefaultApi(
+            access_key=credentials['access_key'],
+            secret_key=credentials['secret_key'],
+            host='webservices.amazon.com',
+            region='us-east-1'
+        )
+        return api_client
+    except Exception as e:
+        raise RuntimeError(f"Failed to initialize API client: {e}")
