@@ -61,6 +61,41 @@ class ProductScraper:
                 continue
         return []
 
+    def extract_rating(self) -> str:
+        """
+        Extract product rating (e.g., "4.7 out of 5 stars").
+
+        Returns:
+            Rating string with numeric value
+        """
+        # Try #acrPopover title attribute first
+        try:
+            acr_elem = self.page.css("#acrPopover").get()
+            if acr_elem:
+                title = acr_elem.attrib.get("title", "")
+                if title:
+                    # Extract number from "X.X out of 5 stars"
+                    import re
+                    match = re.search(r'(\d+\.\d+)', title)
+                    return match.group(1) if match else title
+        except:
+            pass
+
+        # Try .a-icon-alt text as fallback
+        try:
+            alt_elems = self.page.css(".a-icon-alt").get_all()
+            for elem in alt_elems:
+                text = elem.css("::text").get()
+                if text and "out of 5" in text:
+                    import re
+                    match = re.search(r'(\d+\.\d+)', text)
+                    return match.group(1) if match else text.strip()
+        except:
+            pass
+
+        # Fallback to original selectors
+        return self.extract_text(SELECTORS["rating"])
+
     def extract_price(self) -> str:
         """
         Extract price with currency (handles international formats).
@@ -134,7 +169,7 @@ class ProductScraper:
         brand = self.extract_text(SELECTORS["brand"])
         description = self.extract_list(SELECTORS["description"])
         images = self.extract_images(SELECTORS["image"])
-        rating = self.extract_text(SELECTORS["rating"])
+        rating = self.extract_rating()  # Use special rating extraction
         review_count_text = self.extract_text(SELECTORS["review_count"])
 
         # Parse review count (e.g., "1,234 ratings" -> 1234)
@@ -192,17 +227,31 @@ class ReviewExtractor:
             review_elements = self.page.css("[data-hook='review']").get_all()
 
             for i, review_elem in enumerate(review_elements[:max_reviews]):
-                # Extract review fields
+                # Extract review rating - parse from text like "5.0 out of 5 stars"
                 rating_elem = review_elem.css(SELECTORS["review_rating"]).get()
-                rating = rating_elem.attrib.get("title", "N/A") if rating_elem else "N/A"
+                rating = "N/A"
+                if rating_elem:
+                    rating_text = rating_elem.css("::text").get()
+                    if rating_text:
+                        # Extract number from "X.X out of 5 stars"
+                        import re
+                        match = re.search(r'(\d+\.\d+)', rating_text)
+                        rating = match.group(1) if match else rating_text.strip()
 
-                text_elem = review_elem.css(SELECTORS["review_text"]).get()
-                text = text_elem.css("::text").get().strip() if text_elem else "N/A"
+                # Extract review text - use data-hook and get all text
+                text_elem = review_elem.css("[data-hook='review-body']").get()
+                text = "N/A"
+                if text_elem:
+                    # Get all text nodes and join them
+                    text_nodes = text_elem.css("::text").get_all()
+                    text_parts = [t.get().strip() for t in text_nodes if t.get() and t.get().strip()]
+                    text = ' '.join(text_parts) if text_parts else "N/A"
 
                 date_elem = review_elem.css(SELECTORS["review_date"]).get()
                 date = date_elem.css("::text").get().strip() if date_elem else "N/A"
 
-                verified_elem = review_elem.css(SELECTORS["review_verified"]).get()
+                # Check for verified purchase badge using data-hook
+                verified_elem = review_elem.css("[data-hook='avp-badge']").get()
                 verified = verified_elem is not None
 
                 reviewer_elem = review_elem.css(SELECTORS["reviewer_name"]).get()
