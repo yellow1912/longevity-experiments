@@ -10,6 +10,34 @@ from pathlib import Path
 from typing import Dict, Any
 
 
+def set_usd_currency(page):
+    """
+    Page action function to set USD currency via cookies.
+    Use this with StealthyFetcher's page_action parameter.
+
+    Args:
+        page: Playwright page object
+    """
+    try:
+        # Set Amazon i18n-prefs cookie to force USD
+        page.context.add_cookies([{
+            'name': 'i18n-prefs',
+            'value': 'USD',
+            'domain': '.amazon.com',
+            'path': '/'
+        }])
+        # Also try setting lc-main for US locale
+        page.context.add_cookies([{
+            'name': 'lc-main',
+            'value': 'en_US',
+            'domain': '.amazon.com',
+            'path': '/'
+        }])
+    except Exception as e:
+        print(f"Warning: Could not set USD currency cookies: {e}")
+        pass
+
+
 def generate_affiliate_link(asin: str, partner_tag: str) -> str:
     """
     Programmatically generate Amazon affiliate link from ASIN.

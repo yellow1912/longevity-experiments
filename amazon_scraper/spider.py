@@ -9,7 +9,7 @@ from .config import CATEGORIES, SCRAPING_SETTINGS, SELECTORS
 from .extractors import ProductScraper, ReviewExtractor
 from .exporters import DataExporter
 from .state import StateManager
-from .utils import sleep_with_message
+from .utils import sleep_with_message, set_usd_currency
 
 
 class SupplementSpider:
@@ -144,12 +144,13 @@ class SupplementSpider:
             url = f"{url}&currency=USD"
 
         try:
-            # Use StealthyFetcher for anti-detection
+            # Use StealthyFetcher for anti-detection with USD currency forcing
             response = StealthyFetcher.fetch(
                 url,
                 headless=True,
                 network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
+                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000,  # Convert seconds to milliseconds
+                page_action=set_usd_currency  # Force USD currency via cookies
             )
 
             # Extract ASINs from data-asin attributes
@@ -185,12 +186,13 @@ class SupplementSpider:
         product_url = f"https://www.amazon.com/dp/{asin}?currency=USD"
 
         try:
-            # Fetch product page
+            # Fetch product page with USD currency forcing
             response = StealthyFetcher.fetch(
                 product_url,
                 headless=True,
                 network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
+                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000,  # Convert seconds to milliseconds
+                page_action=set_usd_currency  # Force USD currency via cookies
             )
 
             # Extract product data
