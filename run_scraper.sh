@@ -3,4 +3,4 @@
 
 cd "$(dirname "$0")"
 source venv/bin/activate
-python amazon_scraper/run.py "$@"
+python -m amazon_scraper.run "$@"
