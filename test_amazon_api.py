@@ -7,14 +7,11 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from paapi5_python_sdk import (
-    DefaultApi,
-    PartnerType,
-    SearchItemsRequest,
-    SearchItemsResource,
-    ProductAdvertisingAPIClientException,
-    ApiException,
-)
+from paapi5_python_sdk.api.default_api import DefaultApi
+from paapi5_python_sdk.partner_type import PartnerType
+from paapi5_python_sdk.search_items_request import SearchItemsRequest
+from paapi5_python_sdk.search_items_resource import SearchItemsResource
+from paapi5_python_sdk.rest import ApiException
 
 
 def load_credentials(csv_path: str = "Longevity-credentials.csv") -> Dict[str, str]:
@@ -115,6 +112,7 @@ def search_supplements(
 
     Raises:
         ApiException: If API call fails
+        RuntimeError: If unexpected error occurs
     """
     # Define which product data fields to retrieve
     search_items_resource = [
@@ -123,8 +121,6 @@ def search_supplements(
         SearchItemsResource.ITEMINFO_BYLINEINFO,
         SearchItemsResource.ITEMINFO_FEATURES,
         SearchItemsResource.OFFERS_LISTINGS_PRICE,
-        SearchItemsResource.CUSTOMERREVIEWS_STARRRATING,
-        SearchItemsResource.CUSTOMERREVIEWS_COUNT,
     ]
 
     # Create search request
@@ -160,14 +156,24 @@ def search_supplements(
     except ApiException as e:
         error_msg = f"API call failed (HTTP {e.status})"
 
+        # Include the body of the response if available
+        if hasattr(e, 'body') and e.body:
+            error_msg += f"\nResponse body: {e.body}"
+
         if e.status == 401:
-            error_msg += "\nAuthentication failed. Check your credentials."
+            error_msg += "\n\nAuthentication failed. Possible reasons:"
+            error_msg += "\n  - Invalid or expired access key/secret key"
+            error_msg += "\n  - Credentials not associated with Product Advertising API"
+            error_msg += "\n  - Partner tag not registered or inactive"
         elif e.status == 429:
             error_msg += "\nRate limit exceeded. Wait a moment and try again."
         elif e.status == 400:
-            error_msg += f"\nBad request. Check your partner tag and search parameters."
+            error_msg += "\nBad request. Check your partner tag and search parameters."
 
         raise ApiException(status=e.status, reason=error_msg)
+    except Exception as e:
+        error_msg = f"Unexpected error during API call: {str(e)}"
+        raise RuntimeError(error_msg)
 
 
 def format_product_data(response: object) -> List[Dict[str, any]]:
