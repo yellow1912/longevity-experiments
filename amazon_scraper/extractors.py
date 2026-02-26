@@ -53,7 +53,7 @@ class ProductScraper:
         """
         for selector in selectors:
             try:
-                elements = self.page.css(selector).getall()
+                elements = self.page.css(selector).get_all()
                 if elements:
                     texts = [e.css("::text").get() for e in elements]
                     return [t.strip() for t in texts if t and t.strip()]
@@ -75,7 +75,7 @@ class ProductScraper:
         for selector in selectors:
             try:
                 # Try to get src attribute
-                img_elements = self.page.css(selector).getall()
+                img_elements = self.page.css(selector).get_all()
                 for elem in img_elements:
                     src = elem.attrib.get("src") or elem.attrib.get("data-src")
                     if src and src.startswith("http"):
@@ -157,7 +157,7 @@ class ReviewExtractor:
 
         try:
             # Find all review containers
-            review_elements = self.page.css("[data-hook='review']").getall()
+            review_elements = self.page.css("[data-hook='review']").get_all()
 
             for i, review_elem in enumerate(review_elements[:max_reviews]):
                 # Extract review fields

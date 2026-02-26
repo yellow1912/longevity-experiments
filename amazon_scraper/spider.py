@@ -151,7 +151,7 @@ class SupplementSpider:
             )
 
             # Extract ASINs from data-asin attributes
-            asin_elements = response.css(SELECTORS["product_asin"]).getall()
+            asin_elements = response.css(SELECTORS["product_asin"]).get_all()
             asins = []
 
             for elem in asin_elements:
