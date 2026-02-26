@@ -23,7 +23,7 @@ def set_usd_currency(page):
         page: The page object (required by Scrapling)
     """
     try:
-        # Set locale preferences
+        # Set locale preferences cookie
         page.context.add_cookies([{
             'name': 'lc-main',
             'value': 'en_US',
@@ -32,34 +32,43 @@ def set_usd_currency(page):
             'sameSite': 'Lax'
         }])
 
-        # Wait for page to be ready
-        page.wait_for_load_state('domcontentloaded')
+        # Navigate to Amazon homepage first to set delivery location
+        current_url = page.url
+        if 'amazon.com' not in current_url:
+            # If we haven't loaded an Amazon page yet, go to homepage
+            page.goto('https://www.amazon.com', wait_until='domcontentloaded', timeout=30000)
+
+        # Wait for page to be interactive
+        page.wait_for_load_state('networkidle', timeout=15000)
 
         # Use browser automation to set delivery location to US
-        # This is the key - delivery location determines currency
         try:
             # Look for the delivery location selector
-            deliver_to = page.locator('#nav-global-location-popover-link').first
-            if deliver_to.is_visible(timeout=3000):
-                deliver_to.click()
-                page.wait_for_timeout(1000)
+            deliver_to = page.locator('#nav-global-location-popover-link')
+            if deliver_to.count() > 0 and deliver_to.first.is_visible(timeout=5000):
+                deliver_to.first.click()
+                page.wait_for_timeout(1500)
 
                 # Enter US zip code (10001 = New York City)
                 zip_input = page.locator('#GLUXZipUpdateInput')
-                if zip_input.is_visible(timeout=2000):
+                if zip_input.count() > 0 and zip_input.is_visible(timeout=3000):
                     zip_input.fill('10001')
-                    # Click apply button
-                    page.locator('input[aria-labelledby="GLUXZipUpdate-announce"]').click()
-                    page.wait_for_timeout(2000)
-                    print("✓ US delivery location set (ZIP: 10001 - NYC)")
-                    return page
+                    page.wait_for_timeout(500)
 
-            print("⚠️  Delivery location selector not found, continuing without USD forcing")
+                    # Click apply button
+                    apply_button = page.locator('input[aria-labelledby="GLUXZipUpdate-announce"]')
+                    if apply_button.count() > 0:
+                        apply_button.click()
+                        page.wait_for_timeout(2000)
+                        print("✓ US delivery location set (ZIP: 10001 - NYC) - USD pricing enabled")
+                        return page
+
+            print("⚠️  Could not find/click delivery location selector")
         except Exception as e:
-            print(f"⚠️  Could not automate delivery location: {e}")
+            print(f"⚠️  Delivery location automation error: {str(e)[:100]}")
 
     except Exception as e:
-        print(f"⚠️  Warning: Error in set_usd_currency: {e}")
+        print(f"⚠️  Error in set_usd_currency: {str(e)[:100]}")
 
     return page
 
