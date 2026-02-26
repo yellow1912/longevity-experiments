@@ -12,7 +12,8 @@ from typing import Dict, Any
 
 def set_usd_currency(page):
     """
-    Page action function to set USD currency via cookies.
+    Page action function to set US delivery location for USD pricing.
+    Sets delivery location to US address, which forces USD currency.
     Use this with StealthyFetcher's page_action parameter.
 
     Args:
@@ -22,15 +23,7 @@ def set_usd_currency(page):
         page: The page object (required by Scrapling)
     """
     try:
-        # Set Amazon i18n-prefs cookie to force USD
-        page.context.add_cookies([{
-            'name': 'i18n-prefs',
-            'value': 'USD',
-            'domain': '.amazon.com',
-            'path': '/',
-            'sameSite': 'Lax'
-        }])
-        # Also try setting lc-main for US locale
+        # Set locale preferences
         page.context.add_cookies([{
             'name': 'lc-main',
             'value': 'en_US',
@@ -38,9 +31,35 @@ def set_usd_currency(page):
             'path': '/',
             'sameSite': 'Lax'
         }])
-        print("✓ USD currency cookies set")
+
+        # Wait for page to be ready
+        page.wait_for_load_state('domcontentloaded')
+
+        # Use browser automation to set delivery location to US
+        # This is the key - delivery location determines currency
+        try:
+            # Look for the delivery location selector
+            deliver_to = page.locator('#nav-global-location-popover-link').first
+            if deliver_to.is_visible(timeout=3000):
+                deliver_to.click()
+                page.wait_for_timeout(1000)
+
+                # Enter US zip code (10001 = New York City)
+                zip_input = page.locator('#GLUXZipUpdateInput')
+                if zip_input.is_visible(timeout=2000):
+                    zip_input.fill('10001')
+                    # Click apply button
+                    page.locator('input[aria-labelledby="GLUXZipUpdate-announce"]').click()
+                    page.wait_for_timeout(2000)
+                    print("✓ US delivery location set (ZIP: 10001 - NYC)")
+                    return page
+
+            print("⚠️  Delivery location selector not found, continuing without USD forcing")
+        except Exception as e:
+            print(f"⚠️  Could not automate delivery location: {e}")
+
     except Exception as e:
-        print(f"⚠️  Warning: Could not set USD currency cookies: {e}")
+        print(f"⚠️  Warning: Error in set_usd_currency: {e}")
 
     return page
 
