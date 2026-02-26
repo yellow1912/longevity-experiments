@@ -76,9 +76,140 @@ class SupplementSpider:
         """
         self.state_manager.start_category(category_name)
 
-        # This method will be implemented in Part 2
-        print(f"Scraping category: {category_name}")
-        print("(Implementation continued in next task)")
+        page_num = 1
+        max_pages = 50  # Safety limit
+
+        while page_num <= max_pages:
+            print(f"\n  [Page {page_num}] Fetching product listings...")
+
+            # Extract ASINs from listing page
+            asins = self.extract_asins_from_listing(category_url, page_num)
+
+            if not asins:
+                print(f"  No products found on page {page_num}. End of category.")
+                break
+
+            print(f"  Found {len(asins)} products")
+
+            # Scrape each product
+            for i, asin in enumerate(asins, 1):
+                print(f"  [{i}/{len(asins)}] Processing {asin}...", end=" ")
+
+                # Skip if already scraped
+                if self.exporter.is_already_scraped(asin):
+                    print("(already scraped)")
+                    self.stats["products_skipped"] += 1
+                    continue
+
+                # Scrape product
+                success = self.scrape_product(asin, category_name)
+
+                if success:
+                    self.stats["products_scraped"] += 1
+                    self.stats["validation_passed"] += 1
+                    print("✓")
+                else:
+                    self.stats["validation_failed"] += 1
+                    print("✗")
+
+                # Checkpoint if needed
+                if self.state_manager.should_checkpoint():
+                    self.state_manager.save_checkpoint()
+                    print("  [Checkpoint saved]")
+
+                # Respectful delay
+                delay = SCRAPING_SETTINGS["delay_between_products"]
+                time.sleep(delay)
+
+            page_num += 1
+            self.state_manager.increment_page()
+
+    def extract_asins_from_listing(self, base_url: str, page_num: int) -> List[str]:
+        """
+        Extract product ASINs from category listing page.
+
+        Args:
+            base_url: Category/search URL
+            page_num: Page number (1-indexed)
+
+        Returns:
+            List of ASINs found on page
+        """
+        # Add page number to URL
+        if page_num > 1:
+            url = f"{base_url}&page={page_num}"
+        else:
+            url = base_url
+
+        try:
+            # Use StealthyFetcher for anti-detection
+            response = StealthyFetcher.fetch(
+                url,
+                headless=True,
+                network_idle=True,
+                timeout=SCRAPING_SETTINGS["page_load_timeout"]
+            )
+
+            # Extract ASINs from data-asin attributes
+            asin_elements = response.css(SELECTORS["product_asin"]).getall()
+            asins = []
+
+            for elem in asin_elements:
+                asin = elem.attrib.get("data-asin", "")
+                # Filter out empty and invalid ASINs
+                if asin and asin.startswith("B") and len(asin) == 10:
+                    if asin not in asins:  # Avoid duplicates
+                        asins.append(asin)
+
+            return asins
+
+        except Exception as e:
+            print(f"\n  Error fetching listing page: {e}")
+            self.stats["errors"].append(f"Listing page {page_num}: {str(e)}")
+            return []
+
+    def scrape_product(self, asin: str, category: str) -> bool:
+        """
+        Scrape single product detail page.
+
+        Args:
+            asin: Product ASIN
+            category: Category name
+
+        Returns:
+            True if successful, False otherwise
+        """
+        product_url = f"https://www.amazon.com/dp/{asin}"
+
+        try:
+            # Fetch product page
+            response = StealthyFetcher.fetch(
+                product_url,
+                headless=True,
+                network_idle=True,
+                timeout=SCRAPING_SETTINGS["page_load_timeout"]
+            )
+
+            # Extract product data
+            scraper = ProductScraper(response)
+            product_data = scraper.extract_product_data()
+
+            # Extract reviews
+            review_extractor = ReviewExtractor(response)
+            product_data["reviews"] = review_extractor.extract_reviews()
+
+            # Save product data
+            success, message = self.exporter.save_product(product_data, category)
+
+            if success:
+                self.state_manager.add_scraped_asin(asin)
+
+            return success
+
+        except Exception as e:
+            error_msg = f"Failed to scrape {asin}: {str(e)}"
+            self.stats["errors"].append(error_msg)
+            return False
 
     def print_final_stats(self) -> None:
         """Print final statistics"""
