@@ -21,3 +21,9 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Scraper data
+scraped_data/
+scraper_state.json
+scraper_stats.json
+amazon_scraper/__pycache__/
