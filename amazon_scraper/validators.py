@@ -40,15 +40,15 @@ def validate_title(title: str) -> tuple[bool, str]:
 
 
 def validate_price(price: str) -> tuple[bool, str]:
-    """Validate price format"""
+    """Validate price format (supports international currencies)"""
     if not price:
         return False, "Price is missing"
     if price in ["N/A", "Currently unavailable"]:
         return True, ""  # These are acceptable
-    pattern = r"^\$[\d,]+\.\d{2}$"
-    if not re.match(pattern, price):
-        return False, f"Invalid price format: {price}"
-    return True, ""
+    # Accept any price containing digits (supports USD, VND, EUR, etc.)
+    if re.search(r'\d', price):
+        return True, ""
+    return False, f"Invalid price format: {price}"
 
 
 def validate_affiliate_url(url: str, partner_tag: str) -> tuple[bool, str]:

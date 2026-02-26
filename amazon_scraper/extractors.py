@@ -61,6 +61,38 @@ class ProductScraper:
                 continue
         return []
 
+    def extract_price(self) -> str:
+        """
+        Extract price with currency (handles international formats).
+
+        Returns:
+            Price string with currency (e.g., "$13.49" or "VND 347,715")
+        """
+        # Try .a-price container first (has full price with currency)
+        try:
+            price_containers = self.page.css(".a-price").get_all()
+            if price_containers:
+                # Get all text from first price container
+                texts = price_containers[0].css("::text").get_all()
+                price_parts = [t.get().strip() for t in texts if t.get() and t.get().strip()]
+                if price_parts:
+                    # Join parts and clean up (e.g., "VND 347,715 VND 347,715" -> "VND 347,715")
+                    full_price = ' '.join(price_parts)
+                    # Remove duplicate currency mentions
+                    words = full_price.split()
+                    seen = set()
+                    cleaned = []
+                    for word in words:
+                        if word not in seen or not word.isalpha():
+                            cleaned.append(word)
+                            seen.add(word)
+                    return ' '.join(cleaned[:3])  # Take first 3 parts (currency + amount)
+        except:
+            pass
+
+        # Fallback to original selectors
+        return self.extract_text(SELECTORS["price"])
+
     def extract_images(self, selectors: List[str]) -> List[str]:
         """
         Extract image URLs.
@@ -98,7 +130,7 @@ class ProductScraper:
 
         # Extract fields using selectors
         title = self.extract_text(SELECTORS["title"])
-        price = self.extract_text(SELECTORS["price"])
+        price = self.extract_price()  # Use special price extraction
         brand = self.extract_text(SELECTORS["brand"])
         description = self.extract_list(SELECTORS["description"])
         images = self.extract_images(SELECTORS["image"])
