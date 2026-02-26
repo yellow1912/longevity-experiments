@@ -91,3 +91,19 @@ This script provides the foundation for:
 - [Amazon Creator API Documentation](https://affiliate-program.amazon.com/creatorsapi)
 - [python-amazon-paapi GitHub](https://github.com/sergioteula/python-amazon-paapi)
 - [python-amazon-paapi Documentation](https://python-amazon-paapi.readthedocs.io/)
+
+## Amazon Product Scraper (Temporary Solution)
+
+While waiting to meet the 10 sales/30 days requirement for Creator API access, use the Amazon scraper to collect product data:
+
+```bash
+# Run the scraper
+python amazon_scraper/run.py
+
+# Resume if interrupted
+python amazon_scraper/run.py --resume
+```
+
+See [amazon_scraper/README.md](amazon_scraper/README.md) for full documentation.
+
+**Note:** This is a temporary solution. Once API access is achieved, migrate to the official Creator API for better reliability and compliance.
