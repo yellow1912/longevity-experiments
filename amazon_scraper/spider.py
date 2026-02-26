@@ -147,7 +147,7 @@ class SupplementSpider:
                 url,
                 headless=True,
                 network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"]
+                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
             )
 
             # Extract ASINs from data-asin attributes
@@ -187,7 +187,7 @@ class SupplementSpider:
                 product_url,
                 headless=True,
                 network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"]
+                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
             )
 
             # Extract product data
