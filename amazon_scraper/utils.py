@@ -17,6 +17,9 @@ def set_usd_currency(page):
 
     Args:
         page: Playwright page object
+
+    Returns:
+        page: The page object (required by Scrapling)
     """
     try:
         # Set Amazon i18n-prefs cookie to force USD
@@ -24,18 +27,22 @@ def set_usd_currency(page):
             'name': 'i18n-prefs',
             'value': 'USD',
             'domain': '.amazon.com',
-            'path': '/'
+            'path': '/',
+            'sameSite': 'Lax'
         }])
         # Also try setting lc-main for US locale
         page.context.add_cookies([{
             'name': 'lc-main',
             'value': 'en_US',
             'domain': '.amazon.com',
-            'path': '/'
+            'path': '/',
+            'sameSite': 'Lax'
         }])
+        print("✓ USD currency cookies set")
     except Exception as e:
-        print(f"Warning: Could not set USD currency cookies: {e}")
-        pass
+        print(f"⚠️  Warning: Could not set USD currency cookies: {e}")
+
+    return page
 
 
 def generate_affiliate_link(asin: str, partner_tag: str) -> str:
