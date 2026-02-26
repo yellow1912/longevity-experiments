@@ -87,6 +87,31 @@ Each product is validated for:
 
 See `validation` field in JSON output for details.
 
+## Currency & Pricing Notes
+
+**Current Status**: Prices are displayed in VND (Vietnamese Dong) due to IP geolocation.
+
+**Why VND instead of USD?**
+- Amazon determines currency based on delivery location, not just currency preferences
+- The "Deliver to" location is detected from IP geolocation
+- Scraper currently runs from Vietnam, so Amazon shows VND prices
+
+**Attempted Solutions**:
+1. ✗ URL parameter `currency=USD` - doesn't work, delivery location takes precedence
+2. ✗ Cookie-based preferences - doesn't override delivery location
+3. ✗ Automated delivery location change - modal automation blocked/unreliable due to bot detection
+
+**Working Solutions**:
+- **Option 1 (Current)**: Accept VND prices, convert to USD later using exchange rate data
+- **Option 2**: Use US-based proxy/VPN to get native USD prices
+- **Option 3**: Manual setup - manually set delivery location to US once, export cookies/session for scraper
+
+**Technical Details**:
+- Delivery location selector: `#nav-global-location-popover-link`
+- Modal zip input: `#GLUXZipUpdateInput`
+- Current implementation: Attempts automated location change, falls back to cookie-based approach
+- All data extraction works perfectly with VND - only the currency display is affected
+
 ## Next Steps
 
 Once API access is achieved:

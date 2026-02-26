@@ -3,13 +3,13 @@ Main Spider Module
 Orchestrates the Amazon supplement scraping workflow
 """
 import time
-from typing import List, Optional
+from typing import List
 from scrapling import StealthyFetcher
 from .config import CATEGORIES, SCRAPING_SETTINGS, SELECTORS
 from .extractors import ProductScraper, ReviewExtractor
 from .exporters import DataExporter
 from .state import StateManager
-from .utils import sleep_with_message, set_usd_currency
+from .utils import set_usd_currency
 
 
 class SupplementSpider:
@@ -42,6 +42,26 @@ class SupplementSpider:
             resume_point = self.state_manager.get_resume_point()
             print(f"Resuming from category: {resume_point['category']}")
             print(f"Products already scraped: {resume_point['products_scraped']}")
+
+    def initialize_browser_settings(self) -> None:
+        """Initialize browser settings by setting US delivery location once"""
+        print("\n[Initialization] Setting up US delivery location for USD pricing...")
+        try:
+            # Fetch Amazon homepage to set delivery location
+            StealthyFetcher.fetch(
+                'https://www.amazon.com',
+                headless=True,
+                network_idle=True,
+                timeout=30000,
+                page_action=set_usd_currency
+            )
+            print("✓ Initialization complete")
+            # Wait before starting scraping to avoid rate limits
+            print("  Waiting 5 seconds before starting scrape...\n")
+            time.sleep(5)
+        except Exception as e:
+            print(f"⚠️  Could not initialize delivery location: {str(e)[:150]}")
+            print("  Continuing with default location (prices may not be in USD)\n")
 
     def start(self) -> None:
         """Start the scraping process"""
@@ -144,13 +164,12 @@ class SupplementSpider:
             url = f"{url}&currency=USD"
 
         try:
-            # Use StealthyFetcher for anti-detection with USD currency forcing
+            # Use StealthyFetcher for anti-detection
             response = StealthyFetcher.fetch(
                 url,
                 headless=True,
                 network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000,  # Convert seconds to milliseconds
-                page_action=set_usd_currency  # Force USD currency via cookies
+                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
             )
 
             # Extract ASINs from data-asin attributes
@@ -186,13 +205,12 @@ class SupplementSpider:
         product_url = f"https://www.amazon.com/dp/{asin}?currency=USD"
 
         try:
-            # Fetch product page with USD currency forcing
+            # Fetch product page
             response = StealthyFetcher.fetch(
                 product_url,
                 headless=True,
                 network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000,  # Convert seconds to milliseconds
-                page_action=set_usd_currency  # Force USD currency via cookies
+                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
             )
 
             # Extract product data

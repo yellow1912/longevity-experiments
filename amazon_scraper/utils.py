@@ -23,52 +23,102 @@ def set_usd_currency(page):
         page: The page object (required by Scrapling)
     """
     try:
-        # Set locale preferences cookie
-        page.context.add_cookies([{
-            'name': 'lc-main',
-            'value': 'en_US',
-            'domain': '.amazon.com',
-            'path': '/',
-            'sameSite': 'Lax'
-        }])
-
-        # Navigate to Amazon homepage first to set delivery location
-        current_url = page.url
-        if 'amazon.com' not in current_url:
-            # If we haven't loaded an Amazon page yet, go to homepage
-            page.goto('https://www.amazon.com', wait_until='domcontentloaded', timeout=30000)
-
-        # Wait for page to be interactive
-        page.wait_for_load_state('networkidle', timeout=15000)
+        # Wait for page to be fully loaded
+        page.wait_for_load_state('networkidle', timeout=10000)
+        page.wait_for_timeout(2000)
 
         # Use browser automation to set delivery location to US
         try:
             # Look for the delivery location selector
             deliver_to = page.locator('#nav-global-location-popover-link')
-            if deliver_to.count() > 0 and deliver_to.first.is_visible(timeout=5000):
+            if deliver_to.count() > 0:
+                # Check current location before clicking
+                try:
+                    current_location = page.locator('#glow-ingress-line2').text_content(timeout=2000)
+                    print(f"  Current delivery location: {current_location.strip() if current_location else 'Unknown'}")
+                except:
+                    pass
+
+                print("  → Clicking delivery location selector...")
                 deliver_to.first.click()
-                page.wait_for_timeout(1500)
 
-                # Enter US zip code (10001 = New York City)
+                # Wait for modal - try multiple possible elements
+                try:
+                    # Try waiting for the zip input or the modal container
+                    page.wait_for_selector('#GLUXZipUpdateInput, #a-popover-content-3, .a-popover-wrapper', state='visible', timeout=10000)
+                    page.wait_for_timeout(1500)
+                    print("  → Modal opened, entering US zip code...")
+                except Exception as modal_error:
+                    print(f"  → Modal wait failed: {str(modal_error)[:100]}")
+                    print("  → Trying to find zip input anyway...")
+
+                # Try to find and fill zip input
                 zip_input = page.locator('#GLUXZipUpdateInput')
-                if zip_input.count() > 0 and zip_input.is_visible(timeout=3000):
+                if zip_input.count() > 0 and zip_input.is_visible():
                     zip_input.fill('10001')
-                    page.wait_for_timeout(500)
+                    page.wait_for_timeout(800)
+                    print("  → Zip code entered: 10001")
 
-                    # Click apply button
-                    apply_button = page.locator('input[aria-labelledby="GLUXZipUpdate-announce"]')
-                    if apply_button.count() > 0:
-                        apply_button.click()
-                        page.wait_for_timeout(2000)
-                        print("✓ US delivery location set (ZIP: 10001 - NYC) - USD pricing enabled")
-                        return page
+                    # Click apply button - try multiple selectors
+                    apply_selectors = [
+                        'input[aria-labelledby="GLUXZipUpdate-announce"]',
+                        'button:has-text("Apply")',
+                        '#GLUXZipUpdate-announce',
+                        'span[id="GLUXZipUpdate"]',
+                        '[name="glowDoneButton"]'
+                    ]
 
-            print("⚠️  Could not find/click delivery location selector")
+                    for selector in apply_selectors:
+                        apply_button = page.locator(selector)
+                        if apply_button.count() > 0:
+                            print(f"  → Clicking Apply button (found with: {selector[:30]}...)")
+                            apply_button.first.click()
+                            page.wait_for_timeout(3000)
+
+                            # Verify location changed
+                            try:
+                                location_text = page.locator('#glow-ingress-line2').text_content(timeout=3000)
+                                if location_text and location_text.strip():
+                                    print(f"✓ US delivery location set - Location: {location_text.strip()}")
+                                    return page
+                            except:
+                                pass
+
+                            print("✓ Apply clicked - USD pricing should be enabled")
+                            return page
+
+                    print("⚠️  Could not find Apply button with any known selector")
+                else:
+                    print("⚠️  Zip input field not found or not visible - trying cookie-based approach...")
+                    # Fallback: Set location cookie directly
+                    page.context.add_cookies([{
+                        'name': 'ubid-main',
+                        'value': '134-8789256-8392306',  # US session ID format
+                        'domain': '.amazon.com',
+                        'path': '/'
+                    }])
+                    print("  → Set US session cookie as fallback")
+
+            else:
+                print("⚠️  Delivery location selector (#nav-global-location-popover-link) not found")
+
         except Exception as e:
-            print(f"⚠️  Delivery location automation error: {str(e)[:100]}")
+            error_msg = str(e)[:200]
+            print(f"⚠️  Delivery location error: {error_msg}")
+            # Try cookie fallback
+            try:
+                page.context.add_cookies([{
+                    'name': 'ubid-main',
+                    'value': '134-8789256-8392306',
+                    'domain': '.amazon.com',
+                    'path': '/'
+                }])
+                print("  → Using cookie-based fallback for US location")
+            except:
+                pass
 
     except Exception as e:
-        print(f"⚠️  Error in set_usd_currency: {str(e)[:100]}")
+        print(f"⚠️  Error in set_usd_currency: {str(e)[:200]}")
 
     return page
 

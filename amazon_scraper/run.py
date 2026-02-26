@@ -65,10 +65,16 @@ For more info: https://github.com/yourusername/longevity-experiments
     try:
         spider = SupplementSpider(resume=args.resume)
 
+        # Initialize browser settings (delivery location) for USD pricing
+        spider.initialize_browser_settings()
+
         if args.category:
             # Scrape single category
             from .config import CATEGORIES
             category_url = CATEGORIES[args.category]
+            print("=" * 80)
+            print(f"Amazon Supplement Scraper - Category: {args.category}")
+            print("=" * 80)
             spider.scrape_category(args.category, category_url)
             spider.state_manager.complete_category(args.category)
         else:
