@@ -1,12 +1,13 @@
 # Amazon Affiliate API Test
 
-Test script for verifying Amazon Product Advertising API credentials and retrieving supplement product data for a longevity/health affiliate website.
+Test script for verifying Amazon Creator API credentials and retrieving supplement product data for a longevity/health affiliate website.
 
 ## Prerequisites
 
 - Python 3.8 or higher
-- Amazon Associates account with PA-API access
+- Amazon Associates account with Creator API access
 - Valid API credentials in `Longevity-credentials.csv`
+- **Note:** Your Associates account must meet Amazon's eligibility requirements (verified website/app, minimum traffic/sales)
 
 ## Setup
 
@@ -29,9 +30,9 @@ python test_amazon_api.py
 
 The script will:
 1. Load credentials from CSV
-2. Initialize PA-API client
+2. Initialize Creator API client
 3. Search for vitamin D supplements
-4. Display 10 products with details
+4. Display product results with details
 
 ## Output
 
@@ -59,7 +60,13 @@ For each product, the script displays:
 
 **Authentication failed (401)**: Check your API credentials are valid and not expired
 
-**Rate limit exceeded (429)**: Wait a moment before trying again. PA-API has usage limits.
+**Account not eligible (403)**: Your Associates account needs to meet eligibility requirements:
+- Complete your account profile at https://affiliate-program.amazon.com/
+- Add and verify your website/app
+- Meet minimum traffic or sales requirements
+- Ensure your account status is "Approved"
+
+**Rate limit exceeded (429)**: Wait a moment before trying again. Creator API has usage limits.
 
 **No results found**: Try different search keywords
 
@@ -81,5 +88,6 @@ This script provides the foundation for:
 
 ## API Documentation
 
-- [Amazon PA-API 5.0 Documentation](https://webservices.amazon.com/paapi5/documentation/)
-- [paapi5-python-sdk GitHub](https://github.com/seratch/paapi5-python-sdk)
+- [Amazon Creator API Documentation](https://affiliate-program.amazon.com/creatorsapi)
+- [python-amazon-paapi GitHub](https://github.com/sergioteula/python-amazon-paapi)
+- [python-amazon-paapi Documentation](https://python-amazon-paapi.readthedocs.io/)

@@ -1,28 +1,24 @@
 """
 Amazon Affiliate API Test Script
-Tests PA-API credentials and retrieves supplement product data
+Tests Creator API credentials and retrieves supplement product data
 """
 import csv
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from paapi5_python_sdk.api.default_api import DefaultApi
-from paapi5_python_sdk.partner_type import PartnerType
-from paapi5_python_sdk.search_items_request import SearchItemsRequest
-from paapi5_python_sdk.search_items_resource import SearchItemsResource
-from paapi5_python_sdk.rest import ApiException
+from amazon_creatorsapi import AmazonCreatorsApi, Country
 
 
 def load_credentials(csv_path: str = "Longevity-credentials.csv") -> Dict[str, str]:
     """
-    Load Amazon PA-API credentials from CSV file.
+    Load Amazon Creator API credentials from CSV file.
 
     Args:
         csv_path: Path to credentials CSV file
 
     Returns:
-        Dictionary with 'partner_tag', 'access_key', 'secret_key'
+        Dictionary with 'tag', 'credential_id', 'credential_secret', 'version'
 
     Raises:
         FileNotFoundError: If CSV file doesn't exist
@@ -48,20 +44,22 @@ def load_credentials(csv_path: str = "Longevity-credentials.csv") -> Dict[str, s
             creds = rows[0]
 
             # Extract and validate required fields
-            partner_tag = creds.get('Application Id', '').strip()
-            access_key = creds.get('Credential Id', '').strip()
-            secret_key = creds.get('Secret', '').strip()
+            tag = creds.get('Application Id', '').strip()
+            credential_id = creds.get('Credential Id', '').strip()
+            credential_secret = creds.get('Secret', '').strip()
+            version = creds.get('Version', '2.2').strip()  # Default to 2.2 if not specified
 
-            if not all([partner_tag, access_key, secret_key]):
+            if not all([tag, credential_id, credential_secret]):
                 raise ValueError(
                     "Missing required fields in CSV. "
                     "Expected: 'Application Id', 'Credential Id', 'Secret'"
                 )
 
             return {
-                'partner_tag': partner_tag,
-                'access_key': access_key,
-                'secret_key': secret_key
+                'tag': tag,
+                'credential_id': credential_id,
+                'credential_secret': credential_secret,
+                'version': version
             }
 
     except csv.Error as e:
@@ -70,128 +68,100 @@ def load_credentials(csv_path: str = "Longevity-credentials.csv") -> Dict[str, s
         raise ValueError(f"Unexpected error loading credentials: {e}")
 
 
-def initialize_api_client(credentials: Dict[str, str]) -> DefaultApi:
+def initialize_api_client(credentials: Dict[str, str]) -> AmazonCreatorsApi:
     """
-    Initialize Amazon PA-API client with credentials.
+    Initialize Amazon Creator API client with credentials.
 
     Args:
-        credentials: Dictionary with partner_tag, access_key, secret_key
+        credentials: Dictionary with tag, credential_id, credential_secret, version
 
     Returns:
-        Configured DefaultApi client instance
+        Configured AmazonCreatorsApi client instance
     """
     try:
-        api_client = DefaultApi(
-            access_key=credentials['access_key'],
-            secret_key=credentials['secret_key'],
-            host='webservices.amazon.com',
-            region='us-east-1'
+        api = AmazonCreatorsApi(
+            credential_id=credentials['credential_id'],
+            credential_secret=credentials['credential_secret'],
+            version=credentials['version'],
+            tag=credentials['tag'],
+            country=Country.US,
+            throttling=1  # 1 second between requests to avoid rate limits
         )
-        return api_client
+        return api
     except Exception as e:
         raise RuntimeError(f"Failed to initialize API client: {e}")
 
 
 def search_supplements(
-    api_client: DefaultApi,
-    partner_tag: str,
-    keyword: str = "vitamin D supplement",
-    item_count: int = 10
+    api_client: AmazonCreatorsApi,
+    keyword: str = "vitamin D supplement"
 ) -> Optional[object]:
     """
-    Search for supplement products using PA-API SearchItems operation.
+    Search for supplement products using Creator API SearchItems operation.
 
     Args:
-        api_client: Configured DefaultApi instance
-        partner_tag: Amazon affiliate partner tag
+        api_client: Configured AmazonCreatorsApi instance
         keyword: Search keyword
-        item_count: Number of results to return (max 10)
 
     Returns:
         SearchItemsResponse object or None if no results
 
     Raises:
-        ApiException: If API call fails
-        RuntimeError: If unexpected error occurs
+        Exception: If API call fails
     """
-    # Define which product data fields to retrieve
-    search_items_resource = [
-        SearchItemsResource.IMAGES_PRIMARY_LARGE,
-        SearchItemsResource.ITEMINFO_TITLE,
-        SearchItemsResource.ITEMINFO_BYLINEINFO,
-        SearchItemsResource.ITEMINFO_FEATURES,
-        SearchItemsResource.OFFERS_LISTINGS_PRICE,
-    ]
-
-    # Create search request
-    try:
-        search_items_request = SearchItemsRequest(
-            partner_tag=partner_tag,
-            partner_type=PartnerType.ASSOCIATES,
-            keywords=keyword,
-            item_count=item_count,
-            resources=search_items_resource,
-            marketplace="www.amazon.com"
-        )
-    except Exception as e:
-        raise ValueError(f"Failed to create search request: {e}")
-
-    # Execute search
     try:
         print(f"Searching for: '{keyword}'...")
-        response = api_client.search_items(search_items_request)
+        response = api_client.search_items(keywords=keyword)
 
-        if response.search_result is None:
+        if not response or not response.items:
             print("No results found")
-            return None
-
-        if response.errors:
-            print("API returned errors:")
-            for error in response.errors:
-                print(f"  - {error.code}: {error.message}")
             return None
 
         return response
 
-    except ApiException as e:
-        error_msg = f"API call failed (HTTP {e.status})"
-
-        # Include the body of the response if available
-        if hasattr(e, 'body') and e.body:
-            error_msg += f"\nResponse body: {e.body}"
-
-        if e.status == 401:
-            error_msg += "\n\nAuthentication failed. Possible reasons:"
-            error_msg += "\n  - Invalid or expired access key/secret key"
-            error_msg += "\n  - Credentials not associated with Product Advertising API"
-            error_msg += "\n  - Partner tag not registered or inactive"
-        elif e.status == 429:
-            error_msg += "\nRate limit exceeded. Wait a moment and try again."
-        elif e.status == 400:
-            error_msg += "\nBad request. Check your partner tag and search parameters."
-
-        raise ApiException(status=e.status, reason=error_msg)
     except Exception as e:
-        error_msg = f"Unexpected error during API call: {str(e)}"
+        error_msg = f"API call failed: {str(e)}"
+
+        # Check for common error patterns
+        error_str = str(e).lower()
+        if '401' in error_str or 'unauthorized' in error_str or 'authentication' in error_str:
+            error_msg += "\n\nAuthentication failed. Possible reasons:"
+            error_msg += "\n  - Invalid or expired credential_id/credential_secret"
+            error_msg += "\n  - Credentials not associated with Creator API"
+            error_msg += "\n  - Partner tag not registered or inactive"
+        elif '403' in error_str or 'accessdeniedexception' in error_str or 'not eligible' in error_str:
+            error_msg += "\n\nAccount eligibility issue. This means:"
+            error_msg += "\n  - Your credentials ARE valid and working correctly"
+            error_msg += "\n  - Your Amazon Associates account needs to meet eligibility requirements"
+            error_msg += "\n  - Check https://affiliate-program.amazon.com/ for account status"
+            error_msg += "\n  - You may need to:"
+            error_msg += "\n    • Complete your account profile"
+            error_msg += "\n    • Add and verify your website/app"
+            error_msg += "\n    • Meet minimum traffic or sales requirements"
+        elif '429' in error_str or 'rate limit' in error_str:
+            error_msg += "\nRate limit exceeded. Wait a moment and try again."
+        elif '400' in error_str or 'bad request' in error_str:
+            error_msg += "\nBad request. Check your credentials and search parameters."
+
         raise RuntimeError(error_msg)
 
 
 def format_product_data(response: object) -> List[Dict[str, any]]:
     """
-    Extract and format product data from API response.
+    Extract and format product data from Creator API response.
 
     Args:
-        response: SearchItemsResponse object
+        response: SearchItemsResponse object from Creator API
 
     Returns:
         List of formatted product dictionaries
     """
-    if not response or not response.search_result or not response.search_result.items:
+    if not response or not response.items:
         return []
 
     products = []
 
-    for item in response.search_result.items:
+    for item in response.items:
         product = {
             'asin': item.asin,
             'title': 'N/A',
@@ -213,13 +183,13 @@ def format_product_data(response: object) -> List[Dict[str, any]]:
             item.item_info.by_line_info.brand):
             product['brand'] = item.item_info.by_line_info.brand.display_value
 
-        # Extract price
-        if (item.offers and item.offers.listings and
-            len(item.offers.listings) > 0):
-            listing = item.offers.listings[0]
-            if listing.price:
+        # Extract price - UPDATED for Creator API (offers_v2)
+        if (item.offers_v2 and item.offers_v2.listings and
+            len(item.offers_v2.listings) > 0):
+            listing = item.offers_v2.listings[0]
+            if listing.price and listing.price.money:
                 product['price'] = (
-                    f"${listing.price.amount:.2f} {listing.price.currency}"
+                    f"${listing.price.money.amount:.2f} {listing.price.money.currency_code}"
                 )
 
         # Extract rating
@@ -292,10 +262,10 @@ def main():
         # Step 1: Load credentials
         print("\n[1/4] Loading credentials...")
         credentials = load_credentials()
-        print(f"✓ Loaded partner tag: {credentials['partner_tag']}")
+        print(f"✓ Loaded affiliate tag: {credentials['tag']}")
 
         # Step 2: Initialize API client
-        print("\n[2/4] Initializing Amazon PA-API client...")
+        print("\n[2/4] Initializing Amazon Creator API client...")
         api_client = initialize_api_client(credentials)
         print("✓ API client initialized")
 
@@ -303,9 +273,7 @@ def main():
         print("\n[3/4] Searching for supplements...")
         response = search_supplements(
             api_client=api_client,
-            partner_tag=credentials['partner_tag'],
-            keyword="vitamin D supplement",
-            item_count=10
+            keyword="vitamin D supplement"
         )
 
         if response:
@@ -338,8 +306,8 @@ def main():
     except ValueError as e:
         print(f"\n✗ Credential Error: {e}")
         sys.exit(1)
-    except ApiException as e:
-        print(f"\n✗ API Error: {e.reason if hasattr(e, 'reason') else e}")
+    except RuntimeError as e:
+        print(f"\n✗ API Error: {e}")
         sys.exit(1)
     except Exception as e:
         print(f"\n✗ Unexpected Error: {e}")
