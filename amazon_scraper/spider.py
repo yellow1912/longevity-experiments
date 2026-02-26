@@ -135,11 +135,13 @@ class SupplementSpider:
         Returns:
             List of ASINs found on page
         """
-        # Add page number to URL
+        # Add page number and force USD currency
+        url = base_url
         if page_num > 1:
-            url = f"{base_url}&page={page_num}"
-        else:
-            url = base_url
+            url = f"{url}&page={page_num}"
+        # Force US market with USD (avoids VND or other currencies)
+        if "currency=USD" not in url:
+            url = f"{url}&currency=USD"
 
         try:
             # Use StealthyFetcher for anti-detection
@@ -179,7 +181,8 @@ class SupplementSpider:
         Returns:
             True if successful, False otherwise
         """
-        product_url = f"https://www.amazon.com/dp/{asin}"
+        # Force USD currency for product page
+        product_url = f"https://www.amazon.com/dp/{asin}?currency=USD"
 
         try:
             # Fetch product page
