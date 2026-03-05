@@ -57,9 +57,10 @@ class SupplementSpider:
         self._exporter_lock = threading.Lock()
         self._state_lock = threading.Lock()
 
-        # Load existing ASINs if resuming
+        # Always load existing ASINs so subsequent runs skip already-scraped products
+        self.exporter.load_existing_asins()
+
         if resume:
-            self.exporter.load_existing_asins()
             resume_point = self.state_manager.get_resume_point()
             print(f"Resuming from category: {resume_point['category']}")
             print(f"Products already scraped: {resume_point['products_scraped']}")
