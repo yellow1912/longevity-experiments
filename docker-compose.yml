@@ -1,0 +1,19 @@
+services:
+  scraper:
+    build: .
+    volumes:
+      - ./scraped_data:/app/scraped_data
+      - ./scraper_state:/app/scraper_state
+      - ./data:/app/data
+      - ./Longevity-credentials.csv:/app/Longevity-credentials.csv:ro
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data:ro
+    environment:
+      DB_PATH: /app/data/products.db
+    entrypoint: ["python", "-m", "amazon_scraper.api"]
+    restart: unless-stopped

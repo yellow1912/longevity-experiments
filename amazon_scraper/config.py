@@ -2,6 +2,7 @@
 Amazon Scraper Configuration
 Defines categories, settings, and scraping parameters
 """
+import os
 
 # Your Amazon affiliate partner tag
 PARTNER_TAG = "longevityhe09-20"
@@ -58,4 +59,11 @@ SELECTORS = {
     "review_date": ".review-date",
     "review_verified": ".avp-badge",
     "reviewer_name": ".a-profile-name",
+}
+
+# Database settings
+DATABASE_SETTINGS = {
+    "db_path": os.environ.get("DB_PATH", "data/products.db"),
+    "stale_threshold_days": int(os.environ.get("STALE_THRESHOLD_DAYS", "7")),
+    "write_json": True,  # keep JSON output alongside SQLite
 }

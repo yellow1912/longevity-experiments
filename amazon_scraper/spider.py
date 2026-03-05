@@ -5,7 +5,8 @@ Orchestrates the Amazon supplement scraping workflow
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from collections import defaultdict
+from typing import List, Tuple
 from .config import CATEGORIES, SCRAPING_SETTINGS, SELECTORS
 from .extractors import ProductScraper, ReviewExtractor
 from .exporters import DataExporter
@@ -284,6 +285,33 @@ class SupplementSpider:
         time.sleep(delay)
 
         return success
+
+    def refresh_asins(self, asin_category_pairs: List[Tuple[str, str]]) -> None:
+        """
+        Re-scrape specific products by removing them from the scraped set
+        and re-running the scraper for each category group.
+
+        Args:
+            asin_category_pairs: List of (asin, category) tuples to refresh
+        """
+        if not asin_category_pairs:
+            print("No ASINs to refresh.")
+            return
+
+        # Remove ASINs from scraped set so they bypass the "already scraped" check
+        for asin, _ in asin_category_pairs:
+            self.exporter.scraped_asins.discard(asin)
+
+        # Group by category
+        by_category: dict[str, list[str]] = defaultdict(list)
+        for asin, category in asin_category_pairs:
+            by_category[category].append(asin)
+
+        print(f"\nRefreshing {len(asin_category_pairs)} products across {len(by_category)} categories")
+
+        for category, asins in by_category.items():
+            print(f"\n  [{category}] Refreshing {len(asins)} products...")
+            self._scrape_products_concurrent(asins, category)
 
     def print_final_stats(self) -> None:
         """Print final statistics"""

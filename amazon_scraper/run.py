@@ -6,7 +6,7 @@ import os
 import sys
 import argparse
 from .spider import SupplementSpider
-from .config import SCRAPING_SETTINGS
+from .config import SCRAPING_SETTINGS, DATABASE_SETTINGS
 
 
 def main():
@@ -20,6 +20,8 @@ Examples:
   python amazon_scraper/run.py --resume           # Resume from checkpoint
   python amazon_scraper/run.py --category vitamin-d  # Scrape specific category
   python amazon_scraper/run.py --workers 4 --proxy http://user:pass@host:port
+  python amazon_scraper/run.py --refresh-stale    # Re-scrape stale products
+  python amazon_scraper/run.py --refresh-asin B00FMZQKQ6  # Re-scrape one product
 
 For more info: https://github.com/yourusername/longevity-experiments
         """
@@ -70,6 +72,26 @@ For more info: https://github.com/yourusername/longevity-experiments
         help=f'Fetcher backend name (default: {SCRAPING_SETTINGS["fetcher_backend"]})'
     )
 
+    # Refresh flags
+    parser.add_argument(
+        '--refresh-stale',
+        action='store_true',
+        help='Re-scrape products older than stale threshold'
+    )
+
+    parser.add_argument(
+        '--refresh-asin',
+        type=str,
+        help='Re-scrape a specific product by ASIN'
+    )
+
+    parser.add_argument(
+        '--stale-days',
+        type=int,
+        default=DATABASE_SETTINGS["stale_threshold_days"],
+        help=f'Stale threshold in days (default: {DATABASE_SETTINGS["stale_threshold_days"]})'
+    )
+
     args = parser.parse_args()
 
     # Resolve proxy: CLI flag > env var
@@ -93,6 +115,11 @@ For more info: https://github.com/yourusername/longevity-experiments
     print(f"Proxy: {'configured' if proxy else 'none'}")
     print(f"Fetcher: {args.fetcher}")
     print()
+
+    # Handle refresh modes
+    if args.refresh_stale or args.refresh_asin:
+        _handle_refresh(args, proxy)
+        return
 
     # Initialize and run spider
     try:
@@ -124,6 +151,54 @@ For more info: https://github.com/yourusername/longevity-experiments
     except KeyboardInterrupt:
         print("\n\n⚠️  Scraping interrupted by user")
         print("Progress has been saved. Use --resume to continue.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        import traceback
+        if args.verbose:
+            traceback.print_exc()
+        sys.exit(1)
+
+
+def _handle_refresh(args, proxy: str) -> None:
+    """Handle --refresh-stale and --refresh-asin flags."""
+    from .database import Database
+
+    db = Database()
+
+    if args.refresh_asin:
+        # Refresh a single ASIN
+        product = db.get_product(args.refresh_asin)
+        if product:
+            pairs = [(args.refresh_asin, product["category"])]
+        else:
+            # ASIN not in DB — let user specify category or default
+            print(f"ASIN {args.refresh_asin} not found in database, will scrape as new.")
+            category = args.category or "unknown"
+            pairs = [(args.refresh_asin, category)]
+    else:
+        # Refresh stale
+        pairs = db.get_stale_asins(threshold_days=args.stale_days)
+
+    if not pairs:
+        print("No products to refresh.")
+        sys.exit(0)
+
+    print(f"Found {len(pairs)} product(s) to refresh")
+
+    try:
+        spider = SupplementSpider(
+            resume=False,
+            workers=args.workers,
+            proxy=proxy,
+            fetcher_backend=args.fetcher,
+        )
+        spider.exporter.load_existing_asins()
+        spider.initialize_browser_settings()
+        spider.refresh_asins(pairs)
+        spider.print_final_stats()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Refresh interrupted by user")
         sys.exit(0)
     except Exception as e:
         print(f"\n❌ Error: {e}")

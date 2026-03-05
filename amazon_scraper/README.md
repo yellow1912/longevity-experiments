@@ -1,120 +1,106 @@
-# Amazon Supplement Scraper
+# amazon_scraper
 
-Scrapes Amazon supplement product data until Creator API access is achieved (10 sales/30 days requirement).
+Amazon supplement product scraper with SQLite storage, data refresh tracking, and a read-only REST API.
 
-## Features
+> This is a temporary data source while waiting for Amazon Creator API access. See the [project README](../README.md) for full documentation.
 
-- ✅ Category-first scraping for maximum coverage
-- ✅ Resume capability via checkpoints
-- ✅ Anti-detection with Scrapling's StealthyFetcher
-- ✅ Comprehensive data validation
-- ✅ Automatic affiliate link generation
-- ✅ JSON output organized by category
+## Modules
 
-## Installation
+| Module | Purpose |
+|--------|---------|
+| `config.py` | All configuration: categories, scraping settings, DB settings, CSS selectors |
+| `run.py` | CLI entry point — `python -m amazon_scraper.run [OPTIONS]` |
+| `spider.py` | Orchestrator: iterates categories → pages → concurrent product scraping |
+| `fetchers.py` | HTTP fetching with retry, exponential backoff, proxy support, anti-detection |
+| `extractors.py` | HTML parsing: `ProductScraper` and `ReviewExtractor` using CSS selectors |
+| `exporters.py` | Validates data, saves to SQLite (primary) and JSON (secondary) |
+| `database.py` | SQLite schema (3 tables), `Database` class, JSON import CLI |
+| `api.py` | FastAPI read-only REST API (4 endpoints) — `python -m amazon_scraper.api` |
+| `validators.py` | Product data validation (ASIN format, required fields, affiliate tag) |
+| `state.py` | Checkpoint/resume state management |
+| `utils.py` | Helpers: affiliate links, file I/O, currency/delivery location automation |
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+## Key Flows
 
-# Verify installation
-python -c "from scrapling import Spider; print('Ready!')"
+### Scraping
+
+```
+run.py → SupplementSpider.start()
+  → for each category:
+      → extract ASINs from listing pages (paginated)
+      → filter already-scraped ASINs
+      → _scrape_products_concurrent(asins, category)
+          → ThreadPoolExecutor with per-worker fetcher instances
+          → ProductScraper + ReviewExtractor parse HTML
+          → DataExporter.save_product() validates + writes to SQLite & JSON
 ```
 
-## Usage
+### Refresh
+
+```
+run.py --refresh-stale
+  → Database.get_stale_asins(threshold_days)
+  → SupplementSpider.refresh_asins(pairs)
+      → removes ASINs from scraped set
+      → groups by category
+      → _scrape_products_concurrent() for each group
+      → upsert_product() updates updated_at timestamp
+```
+
+### API
+
+```
+api.py → FastAPI app
+  GET /products       → Database.get_products() with filtering/pagination
+  GET /products/{asin} → Database.get_product() with reviews
+  GET /categories     → Database.get_categories()
+  GET /stats          → Database.get_stats()
+```
+
+## Database Schema
+
+```sql
+products (asin PK, category, title, price, brand, rating, review_count,
+          affiliate_url, description*, images*, best_sellers_rank*,
+          product_details*, product_overview*, videos*, validation*,
+          scraped_at, updated_at)
+          -- * = JSON text columns
+
+reviews  (id PK, asin FK, rating, text, date, verified, reviewer)
+          -- UNIQUE(asin, reviewer, date)
+
+scrape_history (id PK, asin, scraped_at, success, error)
+```
+
+## Quick Reference
 
 ```bash
-# Start fresh scraping
-python amazon_scraper/run.py
+# Scrape
+python -m amazon_scraper.run --category vitamin-d --workers 2
 
-# Resume from checkpoint
-python amazon_scraper/run.py --resume
+# Refresh stale products
+python -m amazon_scraper.run --refresh-stale --stale-days 3
 
-# Scrape specific category
-python amazon_scraper/run.py --category vitamin-d
+# Import JSON → SQLite
+python -m amazon_scraper.database --import
 
-# Dry run (test without saving)
-python amazon_scraper/run.py --dry-run
-
-# Using convenience script
-./run_scraper.sh --resume
+# Start API
+python -m amazon_scraper.api  # → http://localhost:8000/docs
 ```
 
 ## Configuration
 
-Edit `amazon_scraper/config.py`:
+Edit `config.py` or use environment variables:
 
-- `PARTNER_TAG`: Your Amazon affiliate tag
-- `CATEGORIES`: URLs to scrape
-- `SCRAPING_SETTINGS`: Delays and limits
-- `SELECTORS`: CSS selectors for extraction
+| Env Variable | Default | Description |
+|-------------|---------|-------------|
+| `DB_PATH` | `data/products.db` | SQLite database path |
+| `STALE_THRESHOLD_DAYS` | `7` | Days before product is stale |
+| `PROXY_URL` | — | Proxy URL for fetchers |
 
-## Output Structure
+## Thread Safety
 
-```
-scraped_data/
-├── vitamin-d/
-│   ├── B00123ABC.json
-│   └── ...
-├── omega-3/
-└── ...
-```
-
-## Resume & Checkpoints
-
-The scraper automatically saves progress:
-- After each category
-- Every 50 products
-- On Ctrl+C (graceful shutdown)
-
-Resume with: `python amazon_scraper/run.py --resume`
-
-## Troubleshooting
-
-**Cloudflare blocking:** StealthyFetcher should bypass automatically. If blocked repeatedly, try increasing delays in config.
-
-**Missing data:** Check `SELECTORS` in config.py - Amazon may have changed their HTML structure.
-
-**Memory issues:** Reduce `checkpoint_interval` to save more frequently.
-
-## Data Validation
-
-Each product is validated for:
-- Valid ASIN format
-- Required fields (title, price, affiliate URL)
-- Affiliate tag presence
-- No duplicates
-
-See `validation` field in JSON output for details.
-
-## Currency & Pricing Notes
-
-**Current Status**: Prices are displayed in VND (Vietnamese Dong) due to IP geolocation.
-
-**Why VND instead of USD?**
-- Amazon determines currency based on delivery location, not just currency preferences
-- The "Deliver to" location is detected from IP geolocation
-- Scraper currently runs from Vietnam, so Amazon shows VND prices
-
-**Attempted Solutions**:
-1. ✗ URL parameter `currency=USD` - doesn't work, delivery location takes precedence
-2. ✗ Cookie-based preferences - doesn't override delivery location
-3. ✗ Automated delivery location change - modal automation blocked/unreliable due to bot detection
-
-**Working Solutions**:
-- **Option 1 (Current)**: Accept VND prices, convert to USD later using exchange rate data
-- **Option 2**: Use US-based proxy/VPN to get native USD prices
-- **Option 3**: Manual setup - manually set delivery location to US once, export cookies/session for scraper
-
-**Technical Details**:
-- Delivery location selector: `#nav-global-location-popover-link`
-- Modal zip input: `#GLUXZipUpdateInput`
-- Current implementation: Attempts automated location change, falls back to cookie-based approach
-- All data extraction works perfectly with VND - only the currency display is affected
-
-## Next Steps
-
-Once API access is achieved:
-1. Migrate to Creator API (test_amazon_api.py)
-2. Compare scraped data vs API data
-3. Set up automated sync
+- `Database` uses `threading.local()` for per-thread SQLite connections
+- `SupplementSpider` uses locks for stats, exporter, and state manager access
+- Each worker thread creates its own fetcher instance
+- SQLite WAL mode allows concurrent reads during writes
