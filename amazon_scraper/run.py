@@ -2,9 +2,11 @@
 CLI Entry Point
 Command-line interface for running the scraper
 """
+import os
 import sys
 import argparse
 from .spider import SupplementSpider
+from .config import SCRAPING_SETTINGS
 
 
 def main():
@@ -17,6 +19,7 @@ Examples:
   python amazon_scraper/run.py                    # Start fresh
   python amazon_scraper/run.py --resume           # Resume from checkpoint
   python amazon_scraper/run.py --category vitamin-d  # Scrape specific category
+  python amazon_scraper/run.py --workers 4 --proxy http://user:pass@host:port
 
 For more info: https://github.com/yourusername/longevity-experiments
         """
@@ -46,7 +49,31 @@ For more info: https://github.com/yourusername/longevity-experiments
         help='Enable verbose logging'
     )
 
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=SCRAPING_SETTINGS["workers"],
+        help=f'Number of concurrent workers (default: {SCRAPING_SETTINGS["workers"]})'
+    )
+
+    parser.add_argument(
+        '--proxy',
+        type=str,
+        default=None,
+        help='Proxy URL (falls back to PROXY_URL env var)'
+    )
+
+    parser.add_argument(
+        '--fetcher',
+        type=str,
+        default=SCRAPING_SETTINGS["fetcher_backend"],
+        help=f'Fetcher backend name (default: {SCRAPING_SETTINGS["fetcher_backend"]})'
+    )
+
     args = parser.parse_args()
+
+    # Resolve proxy: CLI flag > env var
+    proxy = args.proxy or os.environ.get("PROXY_URL")
 
     # Validate arguments
     if args.category:
@@ -61,9 +88,20 @@ For more info: https://github.com/yourusername/longevity-experiments
         print("⚠️  DRY RUN MODE - Data will not be saved")
         print()
 
+    # Print config
+    print(f"Workers: {args.workers}")
+    print(f"Proxy: {'configured' if proxy else 'none'}")
+    print(f"Fetcher: {args.fetcher}")
+    print()
+
     # Initialize and run spider
     try:
-        spider = SupplementSpider(resume=args.resume)
+        spider = SupplementSpider(
+            resume=args.resume,
+            workers=args.workers,
+            proxy=proxy,
+            fetcher_backend=args.fetcher,
+        )
 
         # Initialize browser settings (delivery location) for USD pricing
         spider.initialize_browser_settings()

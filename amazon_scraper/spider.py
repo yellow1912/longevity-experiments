@@ -3,13 +3,15 @@ Main Spider Module
 Orchestrates the Amazon supplement scraping workflow
 """
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
-from scrapling import StealthyFetcher
 from .config import CATEGORIES, SCRAPING_SETTINGS, SELECTORS
 from .extractors import ProductScraper, ReviewExtractor
 from .exporters import DataExporter
 from .state import StateManager
 from .utils import set_usd_currency
+from .fetchers import BaseFetcher, FetchError, create_fetcher
 
 
 class SupplementSpider:
@@ -18,23 +20,41 @@ class SupplementSpider:
     Uses category-first approach with resume capability.
     """
 
-    def __init__(self, resume: bool = False):
+    def __init__(self, resume: bool = False, workers: int = None,
+                 fetcher: BaseFetcher = None, proxy: str = None,
+                 fetcher_backend: str = None):
         """
         Initialize spider.
 
         Args:
             resume: If True, resume from last checkpoint
+            workers: Number of concurrent workers
+            fetcher: Pre-configured fetcher instance
+            proxy: Proxy URL string
+            fetcher_backend: Fetcher backend name
         """
         self.state_manager = StateManager()
         self.exporter = DataExporter()
         self.resume = resume
+        self.workers = workers or SCRAPING_SETTINGS["workers"]
+        self.proxy = proxy
+        self.fetcher = fetcher or create_fetcher(
+            backend=fetcher_backend, proxy=proxy
+        )
         self.stats = {
             "products_scraped": 0,
             "products_skipped": 0,
             "validation_passed": 0,
             "validation_failed": 0,
+            "fetch_errors": 0,
+            "extraction_errors": 0,
             "errors": []
         }
+
+        # Thread safety locks
+        self._stats_lock = threading.Lock()
+        self._exporter_lock = threading.Lock()
+        self._state_lock = threading.Lock()
 
         # Load existing ASINs if resuming
         if resume:
@@ -47,16 +67,15 @@ class SupplementSpider:
         """Initialize browser settings by setting US delivery location once"""
         print("\n[Initialization] Setting up US delivery location for USD pricing...")
         try:
-            # Fetch Amazon homepage to set delivery location
-            StealthyFetcher.fetch(
+            self.fetcher.fetch(
                 'https://www.amazon.com',
-                headless=True,
                 network_idle=True,
                 timeout=30000,
-                page_action=set_usd_currency
+                page_action=set_usd_currency,
+                block_webrtc=False,
+                google_search=False,
             )
             print("✓ Initialization complete")
-            # Wait before starting scraping to avoid rate limits
             print("  Waiting 5 seconds before starting scrape...\n")
             time.sleep(5)
         except Exception as e:
@@ -70,10 +89,10 @@ class SupplementSpider:
         print("=" * 80)
         print(f"Categories to scrape: {len(CATEGORIES)}")
         print(f"Resume mode: {'ON' if self.resume else 'OFF'}")
+        print(f"Workers: {self.workers}")
         print("=" * 80)
 
         for category_name, category_url in CATEGORIES.items():
-            # Skip if already completed
             if self.state_manager.is_category_completed(category_name):
                 print(f"\n✓ Skipping completed category: {category_name}")
                 continue
@@ -97,12 +116,11 @@ class SupplementSpider:
         self.state_manager.start_category(category_name)
 
         page_num = 1
-        max_pages = 50  # Safety limit
+        max_pages = 50
 
         while page_num <= max_pages:
             print(f"\n  [Page {page_num}] Fetching product listings...")
 
-            # Extract ASINs from listing page
             asins = self.extract_asins_from_listing(category_url, page_num)
 
             if not asins:
@@ -111,35 +129,18 @@ class SupplementSpider:
 
             print(f"  Found {len(asins)} products")
 
-            # Scrape each product
-            for i, asin in enumerate(asins, 1):
-                print(f"  [{i}/{len(asins)}] Processing {asin}...", end=" ")
+            # Filter already-scraped ASINs
+            with self._exporter_lock:
+                new_asins = [a for a in asins if not self.exporter.is_already_scraped(a)]
 
-                # Skip if already scraped
-                if self.exporter.is_already_scraped(asin):
-                    print("(already scraped)")
-                    self.stats["products_skipped"] += 1
-                    continue
+            skipped = len(asins) - len(new_asins)
+            if skipped:
+                print(f"  Skipping {skipped} already-scraped products")
+                with self._stats_lock:
+                    self.stats["products_skipped"] += skipped
 
-                # Scrape product
-                success = self.scrape_product(asin, category_name)
-
-                if success:
-                    self.stats["products_scraped"] += 1
-                    self.stats["validation_passed"] += 1
-                    print("✓")
-                else:
-                    self.stats["validation_failed"] += 1
-                    print("✗")
-
-                # Checkpoint if needed
-                if self.state_manager.should_checkpoint():
-                    self.state_manager.save_checkpoint()
-                    print("  [Checkpoint saved]")
-
-                # Respectful delay
-                delay = SCRAPING_SETTINGS["delay_between_products"]
-                time.sleep(delay)
+            if new_asins:
+                self._scrape_products_concurrent(new_asins, category_name)
 
             page_num += 1
             self.state_manager.increment_page()
@@ -155,44 +156,78 @@ class SupplementSpider:
         Returns:
             List of ASINs found on page
         """
-        # Add page number and force USD currency
         url = base_url
         if page_num > 1:
             url = f"{url}&page={page_num}"
-        # Force US market with USD (avoids VND or other currencies)
         if "currency=USD" not in url:
             url = f"{url}&currency=USD"
 
         try:
-            # Use StealthyFetcher for anti-detection
-            response = StealthyFetcher.fetch(
-                url,
-                headless=True,
-                network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
-            )
+            response = self.fetcher.fetch(url)
 
-            # Extract ASINs from data-asin attributes
-            asin_elements = response.css(SELECTORS["product_asin"]).get_all()
             asins = []
 
-            for elem in asin_elements:
+            for elem in response.css(SELECTORS["product_asin"]):
                 asin = elem.attrib.get("data-asin", "")
-                # Filter out empty and invalid ASINs
                 if asin and asin.startswith("B") and len(asin) == 10:
-                    if asin not in asins:  # Avoid duplicates
+                    if asin not in asins:
                         asins.append(asin)
 
             return asins
 
+        except FetchError as e:
+            print(f"\n  Error fetching listing page (all retries exhausted): {e}")
+            with self._stats_lock:
+                self.stats["fetch_errors"] += 1
+                self.stats["errors"].append(f"Listing page {page_num}: {str(e)}")
+            return []
         except Exception as e:
             print(f"\n  Error fetching listing page: {e}")
-            self.stats["errors"].append(f"Listing page {page_num}: {str(e)}")
+            with self._stats_lock:
+                self.stats["errors"].append(f"Listing page {page_num}: {str(e)}")
             return []
 
-    def scrape_product(self, asin: str, category: str) -> bool:
+    def _scrape_products_concurrent(self, asins: List[str], category_name: str) -> None:
         """
-        Scrape single product detail page.
+        Scrape products concurrently using a thread pool.
+
+        Args:
+            asins: List of ASINs to scrape
+            category_name: Category name for organizing output
+        """
+        total = len(asins)
+        print(f"  Scraping {total} products with {self.workers} workers...")
+
+        with ThreadPoolExecutor(max_workers=self.workers) as executor:
+            futures = {
+                executor.submit(self._scrape_single_product_worker, asin, category_name): asin
+                for asin in asins
+            }
+
+            completed = 0
+            for future in as_completed(futures):
+                asin = futures[future]
+                completed += 1
+                try:
+                    success = future.result()
+                    status = "✓" if success else "✗"
+                    print(f"  [{completed}/{total}] {asin} {status}")
+                except Exception as e:
+                    print(f"  [{completed}/{total}] {asin} ✗ (unexpected: {str(e)[:80]})")
+                    with self._stats_lock:
+                        self.stats["errors"].append(f"Worker {asin}: {str(e)}")
+
+                # Checkpoint if needed
+                with self._state_lock:
+                    if self.state_manager.should_checkpoint():
+                        self.state_manager.save_checkpoint()
+                        print("  [Checkpoint saved]")
+
+    def _scrape_single_product_worker(self, asin: str, category: str) -> bool:
+        """
+        Worker method to scrape a single product. Runs in a thread.
+
+        Each worker creates its own fetcher instance for thread isolation.
 
         Args:
             asin: Product ASIN
@@ -201,38 +236,54 @@ class SupplementSpider:
         Returns:
             True if successful, False otherwise
         """
-        # Force USD currency for product page
+        # Each worker gets its own fetcher (StealthyFetcher spawns a new browser per call)
+        worker_fetcher = create_fetcher(
+            backend=SCRAPING_SETTINGS["fetcher_backend"],
+            proxy=self.proxy,
+        )
+
         product_url = f"https://www.amazon.com/dp/{asin}?currency=USD"
 
         try:
-            # Fetch product page
-            response = StealthyFetcher.fetch(
-                product_url,
-                headless=True,
-                network_idle=True,
-                timeout=SCRAPING_SETTINGS["page_load_timeout"] * 1000  # Convert seconds to milliseconds
-            )
+            response = worker_fetcher.fetch(product_url)
+        except FetchError as e:
+            with self._stats_lock:
+                self.stats["fetch_errors"] += 1
+                self.stats["errors"].append(f"Fetch {asin}: {str(e)}")
+            return False
 
-            # Extract product data
+        # Extraction is not retried — failures are data issues, not transient
+        try:
             scraper = ProductScraper(response)
             product_data = scraper.extract_product_data()
 
-            # Extract reviews
             review_extractor = ReviewExtractor(response)
             product_data["reviews"] = review_extractor.extract_reviews()
+        except Exception as e:
+            with self._stats_lock:
+                self.stats["extraction_errors"] += 1
+                self.stats["errors"].append(f"Extract {asin}: {str(e)}")
+            return False
 
-            # Save product data
+        # Save product data under lock
+        with self._exporter_lock:
             success, message = self.exporter.save_product(product_data, category)
 
-            if success:
+        if success:
+            with self._state_lock:
                 self.state_manager.add_scraped_asin(asin)
+            with self._stats_lock:
+                self.stats["products_scraped"] += 1
+                self.stats["validation_passed"] += 1
+        else:
+            with self._stats_lock:
+                self.stats["validation_failed"] += 1
 
-            return success
+        # Respectful delay per worker
+        delay = SCRAPING_SETTINGS["delay_between_products"]
+        time.sleep(delay)
 
-        except Exception as e:
-            error_msg = f"Failed to scrape {asin}: {str(e)}"
-            self.stats["errors"].append(error_msg)
-            return False
+        return success
 
     def print_final_stats(self) -> None:
         """Print final statistics"""
@@ -243,4 +294,6 @@ class SupplementSpider:
         print(f"Products skipped: {self.stats['products_skipped']}")
         print(f"Validation passed: {self.stats['validation_passed']}")
         print(f"Validation failed: {self.stats['validation_failed']}")
+        print(f"Fetch errors: {self.stats['fetch_errors']}")
+        print(f"Extraction errors: {self.stats['extraction_errors']}")
         print("=" * 80)

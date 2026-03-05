@@ -18,19 +18,22 @@ CATEGORIES = {
 
 # Scraping settings
 SCRAPING_SETTINGS = {
-    "delay_between_products": 3,  # seconds (respectful scraping)
+    "delay_between_products": 2,  # seconds (respectful scraping)
     "max_reviews_per_product": 10,
     "retry_attempts": 3,
+    "backoff_base": 5,  # exponential backoff base (5, 10, 20s)
     "checkpoint_interval": 50,  # save state every N products
     "request_timeout": 30,  # seconds
     "page_load_timeout": 60,  # seconds
+    "workers": 2,  # default concurrent workers
+    "fetcher_backend": "stealthy",  # default fetcher backend name
 }
 
 # Output settings
 OUTPUT_SETTINGS = {
     "data_dir": "scraped_data",
-    "state_file": "scraper_state.json",
-    "stats_file": "scraper_stats.json",
+    "state_file": "scraper_state/scraper_state.json",
+    "stats_file": "scraper_state/scraper_stats.json",
     "json_indent": 2,
 }
 
