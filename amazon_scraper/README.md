@@ -22,17 +22,21 @@ Amazon supplement product scraper with SQLite storage, data refresh tracking, an
 
 ## Key Flows
 
-### Scraping
+### Scraping (Incremental by Default)
+
+Every run loads existing ASINs from the database, so subsequent runs automatically skip already-scraped products and only scrape new ones. `--resume` additionally restores the checkpoint position (category/page) from an interrupted session.
 
 ```
-run.py → SupplementSpider.start()
-  → for each category:
-      → extract ASINs from listing pages (paginated)
-      → filter already-scraped ASINs
-      → _scrape_products_concurrent(asins, category)
-          → ThreadPoolExecutor with per-worker fetcher instances
-          → ProductScraper + ReviewExtractor parse HTML
-          → DataExporter.save_product() validates + writes to SQLite & JSON
+run.py → SupplementSpider.__init__()
+  → always loads existing ASINs from DB
+  → SupplementSpider.start()
+      → for each category:
+          → extract ASINs from listing pages (paginated)
+          → filter already-scraped ASINs (skipped)
+          → _scrape_products_concurrent(new asins only)
+              → ThreadPoolExecutor with per-worker fetcher instances
+              → ProductScraper + ReviewExtractor parse HTML
+              → DataExporter.save_product() validates + writes to SQLite & JSON
 ```
 
 ### Refresh
@@ -75,7 +79,7 @@ scrape_history (id PK, asin, scraped_at, success, error)
 ## Quick Reference
 
 ```bash
-# Scrape
+# Scrape (incremental — only new products)
 python -m amazon_scraper.run --category vitamin-d --workers 2
 
 # Refresh stale products

@@ -31,10 +31,10 @@ Scrapes Amazon supplement product data, stores it in SQLite, and exposes it via 
 # Build
 docker compose build
 
-# Run a fresh scrape (writes to SQLite + JSON)
+# Run scraper (incremental — only scrapes new products)
 docker compose run --rm scraper
 
-# Resume from checkpoint
+# Resume from checkpoint (continues interrupted session)
 docker compose run --rm scraper --resume
 
 # Scrape specific category
@@ -50,7 +50,7 @@ docker compose up api
 ```bash
 pip install -r requirements.txt
 
-# Scrape
+# Scrape (incremental — skips already-scraped products)
 python -m amazon_scraper.run
 python -m amazon_scraper.run --category omega-3 --workers 4
 
@@ -68,7 +68,8 @@ python -m amazon_scraper.api
 python -m amazon_scraper.run [OPTIONS]
 
 Scraping:
-  --resume              Resume from last checkpoint
+  (no flags)            Incremental scrape — scans all categories, skips existing products
+  --resume              Resume an interrupted session from its checkpoint position
   --category NAME       Scrape a single category (vitamin-d, omega-3, etc.)
   --workers N           Concurrent workers (default: 2)
   --dry-run             Extract but don't save
